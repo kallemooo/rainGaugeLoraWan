@@ -62,8 +62,8 @@ const lmic_pinmap lmic_pins = {
 static osjob_t sendJob;
 
 // Schedule TX every this many seconds. Multipled with TX_INTERVAL_MULTIPLEXER.
-const uint16_t TX_INTERVAL = 60ul;
-const uint16_t TX_INTERVAL_MULTIPLEXER_MIN = 5ul;
+const uint16_t TX_INTERVAL = 60u;
+const uint16_t TX_INTERVAL_MULTIPLEXER_MIN = 1u;
 uint8_t TX_INTERVAL_MULTIPLEXER = TX_INTERVAL_MULTIPLEXER_MIN;
 
 void countRaindrop();
@@ -74,11 +74,9 @@ volatile static float measuredvbat = 0.0f;
 static void measureVbat()
 {
     measuredvbat = analogRead(VBATPIN);
-    measuredvbat *= 2;    // we divided by 2, so multiply back
-    measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
-    measuredvbat /= 1024; // convert to voltage
-    Serial.print("VBat: ");
-    Serial.println(measuredvbat);
+    measuredvbat *= 2.0f;    // we divided by 2, so multiply back
+    measuredvbat *= 3.3f;    // Multiply by 3.3V, our reference voltage
+    measuredvbat /= 1024u; // convert to voltage
 }
 
 void do_send(osjob_t *j)
@@ -86,21 +84,34 @@ void do_send(osjob_t *j)
     // Check if there is not a current TX/RX job running
     if (!(LMIC.opmode & OP_TXRXPEND))
     {
+        // Copy counter value in interrupt safe context.
         uint32_t c;
         ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
         {
             c = counts;
         }
-        uint8_t buff[6];
-        // First part is the counter. Ony 24 bits is used.
-        buff[0] = ((uint8_t)((c)&0xff));
-        buff[1] = ((uint8_t)((c) >> 8));
-        buff[2] = ((uint8_t)((c) >> 16));
-        // Second part is the vbat voltage.
-        uint16_t vbat = LMIC_f2uflt16(measuredvbat);
-        buff[4] = lowByte(vbat);
-        buff[5] = highByte(vbat);
-        LMIC_setTxData2(1, buff, sizeof(buff), 0u);
+
+        // Send buffer.
+        uint8_t buff[3];
+
+        // Data encoded in 3 bytes.
+        // First two bytes and bit 7 of the third byte is the counter.
+        // 17 bits is used for the counter. It will easy cover heavy rain for days.
+        buff[0] = ((uint8_t)((c) &  0xFFu));
+        buff[1] = ((uint8_t)((c) >> 8u));
+        uint8_t top  = ((uint8_t)((c) >> 16u));
+        if (top > 0u)
+        {
+            top = 0x80u;
+        }
+
+        // 7 bits of the third byte is the vbat voltage.
+        // Multiply with 100 and remove 330 so it fits to 7 bits.
+        // It will not reach below 3v as the device will powerdown before that.
+        // Maximum voltage is not above 4.3 v so 7 bits is ok
+        uint8_t vbat = (uint8_t)((uint16_t)(measuredvbat * 100u) - 330u) & 0x7Fu;
+        buff[2] = top | vbat;
+        LMIC_setTxData2(1u, buff, sizeof(buff), 0u);
     }
 }
 
@@ -166,15 +177,11 @@ void onEvent(ev_t ev)
                 // Channel for clearing of raindrop counter.
                 if ((1u == LMIC.dataLen) && (0xEA == LMIC.frame[LMIC.dataBeg]))
                 {
-                    u1_t newMultiplexer = LMIC.frame[LMIC.dataBeg];
-                    if (newMultiplexer >= TX_INTERVAL_MULTIPLEXER_MIN)
+                    ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
                     {
-                        ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
-                        {
-                            counts = 0u;
-                        }
-                        Serial.println(F("Cleared counts variable."));
+                        counts = 0u;
                     }
+                    Serial.println(F("Cleared counts variable."));
                 }
             }
         }
@@ -201,20 +208,19 @@ void onEvent(ev_t ev)
 
 void setup()
 {
+    measureVbat();
     pinMode(LEDPIN, OUTPUT);
     pinMode(RAIN_GAUGE_PIN, INPUT_PULLUP);
 
     // Turn on the LED to indicate startup mode.
     analogWrite(LEDPIN, 2);
     Serial.begin(115200);
-    yield();
     delay(100);
-    yield();
     if (UDADDR & _BV(ADDEN))
     {
         while (!Serial)
         {
-            ; // wait for serial port to connect. Needed for native USB
+            delay(1); // wait for serial port to connect. Needed for native USB
         }
         Serial.println(F("S"));
     }
@@ -229,8 +235,11 @@ void setup()
     LMIC_setLinkCheckMode(1);
     LMIC_setClockError(MAX_CLOCK_ERROR * 1u / 100u);
 
-    // Start job (sending automatically starts OTAA too)
     measureVbat();
+    Serial.print(F("VBat: "));
+    Serial.println(measuredvbat);
+
+    // Start job (sending automatically starts OTAA too)
     do_send(&sendJob);
     state = ST_JOINING;
 }
@@ -259,7 +268,7 @@ unsigned long previousFadeMillis;
 // How fast to increment?
 const uint8_t fadeInterval = 50u;
 
-void doTheFade(unsigned long thisMillis)
+static void doTheFade(unsigned long thisMillis)
 {
     // is it time to update yet?
     // if not, nothing happens
@@ -326,6 +335,15 @@ void loop()
             // Check if it is OK to go to sleep for 15 ms.
             if (0 == os_queryTimeCriticalJobs(os_getTime() + ms2osticks(15u)))
             {
+                if (measuredvbat < 3.5f)
+                {
+                    // To low battery voltage. Powerdown to not discharge battery
+                    // below the level that vill destroy the battery.
+                    // Disconnect interrupt and put device in deep sleep forever.
+                    detachInterrupt(digitalPinToInterrupt(RAIN_GAUGE_PIN));
+                    LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
+                }
+
                 // OK to go to sleep.
                 wakeup_by_interrupt = false;
                 LowPower.powerDown(SLEEP_15MS, ADC_OFF, BOD_OFF);
@@ -353,15 +371,18 @@ void loop()
         {
             // Only run this part if USB is connected.
             unsigned long currentMillis = millis();
-            if ((currentMillis - previousFadeMillis) >= 1000u)
+            if ((currentMillis - previousFadeMillis) >= 10000u)
             {
+                // Copy counter value in interrupt safe context.
                 uint32_t c;
                 ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
                 {
                     c = counts;
                 }
                 Serial.print(F("counts: "));
-                Serial.println(c);
+                Serial.print(c);
+                Serial.print(F(" VBat: "));
+                Serial.println(measuredvbat);
                 previousFadeMillis = currentMillis;
             }
         }
