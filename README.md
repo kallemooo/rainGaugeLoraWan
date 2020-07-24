@@ -1,3 +1,4 @@
+![GitHub](https://img.shields.io/github/license/kallemooo/rainGaugeLoraWan) ![GitHub Workflow Status](https://img.shields.io/github/workflow/status/kallemooo/rainGaugeLoraWan/CI)
 # LoRaWAN&trade; connected rain gauge
 Simple tipping bucket rain gauge connected via LoRaWAN&trade;.
 The device counts number of times the bucket tip/tumble, and sends the value using LoRaWAN&trade;.
