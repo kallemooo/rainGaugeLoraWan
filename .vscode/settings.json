@@ -1,0 +1,32 @@
+{
+    "cSpell.words": [
+        "txbeg",
+        "ADDEN",
+        "Adafruit",
+        "Arduino",
+        "LMIC",
+        "OTAA",
+        "RXCOMPLETE",
+        "TXCOMPLETE",
+        "TXRX",
+        "TXRXPEND",
+        "TXSTART",
+        "Txpow",
+        "UDADDR",
+        "VBATPIN",
+        "Vbat",
+        "analog",
+        "lorawan",
+        "measuredvbat",
+        "millis",
+        "mosquitto",
+        "opmode",
+        "osjob",
+        "osticks",
+        "println",
+        "rssi",
+        "rxtx",
+        "thethings",
+        "thethingsnetwork"
+    ]
+}

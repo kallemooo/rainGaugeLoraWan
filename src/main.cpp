@@ -45,7 +45,8 @@ static st_t state = ST_JOINING;
 #define VBATPIN A9
 
 #if defined(ARDUINO_AVR_FEATHER32U4)
-// Pin mapping for Adafruit Feather 32u4 LoRa, etc.
+// Pin mapping for Adafruit Feather 32u4 LoRa.
+// Using pin 1 for dio 1 as this pin is one of the external interrupt pins.
 const lmic_pinmap lmic_pins = {
     .nss = 8,
     .rxtx = LMIC_UNUSED_PIN,
@@ -61,7 +62,7 @@ const lmic_pinmap lmic_pins = {
 
 static osjob_t sendJob;
 
-// Schedule TX every this many seconds. Multipled with TX_INTERVAL_MULTIPLEXER.
+// Schedule TX every this many seconds. Multiplied with TX_INTERVAL_MULTIPLEXER.
 const uint16_t TX_INTERVAL = 60u;
 const uint16_t TX_INTERVAL_MULTIPLEXER_MIN = 1u;
 uint8_t TX_INTERVAL_MULTIPLEXER = TX_INTERVAL_MULTIPLEXER_MIN;
@@ -338,7 +339,7 @@ void loop()
                 if (measuredvbat < 3.5f)
                 {
                     // To low battery voltage. Powerdown to not discharge battery
-                    // below the level that vill destroy the battery.
+                    // below the level that will destroy the battery.
                     // Disconnect interrupt and put device in deep sleep forever.
                     detachInterrupt(digitalPinToInterrupt(RAIN_GAUGE_PIN));
                     LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);

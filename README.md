@@ -1,28 +1,40 @@
-# Lora wan connected rain gauge
-Simple tipping bucket rain gauge connected via Lora Wan.
-The device counts number of times the bucket tip/tumble, and sends the value using Lora Wan.
+# LoRaWAN&trade; connected rain gauge
+Simple tipping bucket rain gauge connected via LoRaWAN&trade;.
+The device counts number of times the bucket tip/tumble, and sends the value using LoRaWAN&trade;.
 
 A receiver application can then calculate the rainfall, and if needed reset the counter.
 
-## Integration to thethingsnetwork.org
-To simplify integration to thethingsnetwork.org a decoder and encoder can be used
-so the MQTT API can be used.
+## Rainfall calculation
+The rainfall calculation is inspired by the [Arduino-Rain-Gauge-Calibration][argc] instruction.
+
+I am using a tipping bucket rain gauge with the dimensions 11 cm by 5 cm respectively giving a catchment area of 55 cm&sup2;.
+A collection of 10 millilitres of rain is 10 ml/55 cm&sup2; = 0.181818182 cm = 1.81818182 mm of rain.
+
+In the tipping bucket rain gauge, the bucket tips 5 times for 10 ml (or 1.81 mm of rain) and so a single tip is for (10/5) ml = 2ml (or 0,364636364 mm).
+
+## Hardware
+* An [Adafruit Feather 32u4 RFM95 LoRa Radio][32u4].
+* A tipping bucket rain gauge.
+
+## Integration to [the things network][ttn]
+To simplify integration to [the things network][ttn] a decoder and encoder can be used to simplify usage of the MQTT API.
 
 ### Reset rain counter
 MQTT command to reset the rain counter in the device.
+The parameter **reset** shall have the value **234** (0xEA) for the reset command to be accepted by the device.
 
 ```shell
 mosquitto_pub -h <Region>.thethings.network -u "<AppID>" -P "<AppKey>" -t '<AppID>/devices/<DevID>/down' -m '{"port":2,"confirmed":true,"payload_fields":{"reset":234}}'
 ```
 
-### Set transmit intervall multiplexer
-MQTT command to set transmit intervall to 15 minutes.
+### Set transmit interval multiplexer
+MQTT command to set transmit interval to 15 minutes.
 
 ```shell
 mosquitto_pub -h <Region>.thethings.network -u "<AppID>" -P "<AppKey>" -t '<AppID>/devices/<DevID>/down' -m '{"port":2,"confirmed":true,"payload_fields":{"multiplexer":15}}'
 ```
 
-### JavaScript decoder for thethingsnetwork.org
+### JavaScript decoder for [the things network][ttn]
 
 ```javascript
 function Decoder(bytes, port)
@@ -44,7 +56,7 @@ function Decoder(bytes, port)
 }
 ```
 
-### JavaScript encoder for thethingsnetwork.org
+### JavaScript encoder for [the things network][ttn]
 
 ```javascript
 function Encoder(object, port) {
@@ -65,5 +77,15 @@ function Encoder(object, port) {
 }
 ```
 
-## Links
-The device is inspired by https://www.instructables.com/id/Arduino-Rain-Gauge-Calibration
+## References
+* [Arduino-Rain-Gauge-Calibration][argc]
+* [The things network][ttn]
+* [Adafruit Feather 32u4 RFM95 LoRa Radio][32u4]
+
+[//]: # (These are reference links used in the body of this note and get stripped out when the markdown processor does its job.)
+
+[ttn]: <https://thethingsnetwork.org> "The things network"
+
+[argc]: <https://www.instructables.com/id/Arduino-Rain-Gauge-Calibration>
+
+[32u4]: <https://www.adafruit.com/product/3078> "Adafruit Feather 32u4 RFM95 LoRa Radio- 868 or 915 MHz - RadioFruit"
