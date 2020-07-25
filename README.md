@@ -8,14 +8,34 @@ A receiver application can then calculate the rainfall, and if needed reset the 
 ## Rainfall calculation
 The rainfall calculation is inspired by the [Arduino-Rain-Gauge-Calibration][argc] instruction.
 
-I am using a tipping bucket rain gauge with the dimensions 11 cm by 5 cm respectively giving a catchment area of 55 cm&sup2;.
+A tipping bucket rain gauge with the dimensions 11 cm by 5 cm respectively is used, giving a catchment area of 55 cm&sup2;.
 A collection of 10 millilitres of rain is 10 ml/55 cm&sup2; = 0.181818182 cm = 1.81818182 mm of rain.
 
-In the tipping bucket rain gauge, the bucket tips 5 times for 10 ml (or 1.81 mm of rain) and so a single tip is for (10/5) ml = 2ml (or 0,364636364 mm).
+In the tipping bucket rain gauge, the bucket tips/tumbles 5 times for 10 ml (or 1.81 mm of rain) and so a single tip is for (10/5) ml = 2ml (or 0,364636364 mm).
 
 ## Hardware
 * An [Adafruit Feather 32u4 RFM95 LoRa Radio][32u4].
+* Power source is a LiPo battery.
 * A tipping bucket rain gauge.
+* RJ-11 jack for the tipping bucket connection.
+* Wires to connect the RJ-11 to the Feather.
+
+### Pin usage.
+#### RFM95 connection
+All needed pins of the the RFM95 pins is on the Feather directly connected to pins on the 32u4 except for RFM95 DIO1. For RFM95 DIO1 is Arduino pin 1 selected as it is external interrupt #3, and also located next to dio1 on the Feather.
+[Adafruit Feather 32u4 RFM95 pin mapping][RFM95pin].
+
+#### Tipping bucket connection
+The tipping bucket needs two pins on the Feather, GND and input.
+As input pin is Arduino pin 3 (external interrupt 0) selected.
+
+Weak pull-up needs to be enabled for Arduino pin 3 so when the tipping bucket tips/tumbles a low signal can be detected.
+
+## Software
+[PlatformIO][PlatformIO] using the [Adafruit Feather 32u4 PlatformIO board][feather32u4] is the base.
+The [Arduino-LMIC library][arduino-lmic] provides the LoRaWAN&trade; support.
+
+The firmware only counts number of tips/tumbles done by the tipping bucket and sends it using LoRaWAN&trade;. In the message is also the battery voltage level reported.
 
 ## Integration to [the things network][ttn]
 To simplify integration to [the things network][ttn] a decoder and encoder can be used to simplify usage of the MQTT API.
@@ -79,9 +99,13 @@ function Encoder(object, port) {
 ```
 
 ## References
-* [Arduino-Rain-Gauge-Calibration][argc]
 * [The things network][ttn]
+* [Arduino-Rain-Gauge-Calibration][argc]
 * [Adafruit Feather 32u4 RFM95 LoRa Radio][32u4]
+* [Adafruit Feather 32u4 RFM95 pin mapping][RFM95pin]
+* [Adafruit Feather 32u4 PlatformIO board][feather32u4]
+* [PlatformIO][PlatformIO]
+* [Arduino-LMIC library][arduino-lmic]
 
 [//]: # (These are reference links used in the body of this note and get stripped out when the markdown processor does its job.)
 
@@ -90,3 +114,11 @@ function Encoder(object, port) {
 [argc]: <https://www.instructables.com/id/Arduino-Rain-Gauge-Calibration>
 
 [32u4]: <https://www.adafruit.com/product/3078> "Adafruit Feather 32u4 RFM95 LoRa Radio- 868 or 915 MHz - RadioFruit"
+
+[RFM95pin]: <https://learn.adafruit.com/adafruit-feather-32u4-radio-with-lora-radio-module/pinouts#rfm-slash-semtech-radio-module-2825006-11> "Adafruit Feather 32u4 RFM95 pin mapping"
+
+[feather32u4]: <https://docs.platformio.org/en/latest/boards/atmelavr/feather32u4.html> "Adafruit Feather 32u4 PlatformIO board"
+
+[PlatformIO]: <https://platformio.org> "PlatformIO"
+
+[arduino-lmic]: <https://github.com/mcci-catena/arduino-lmic> "MCCI Catena Arduino-LMIC library"
