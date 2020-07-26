@@ -35,7 +35,9 @@ void os_getDevKey(u1_t *buf) { memcpy_P(buf, APPKEY, 16); }
 typedef enum _st_t
 {
     ST_JOINING = 1,
-    ST_JOIN_DONE
+    ST_JOIN_DONE,
+    ST_TX_RX_PENDING,
+    ST_IDLE
 } st_t;
 
 static st_t state = ST_JOINING;
@@ -66,7 +68,7 @@ static osjob_t sendJob;
 const uint16_t TX_INTERVAL = 60u;
 const uint16_t TX_INTERVAL_MULTIPLEXER_MIN = 1u;
 uint8_t TX_INTERVAL_MULTIPLEXER = TX_INTERVAL_MULTIPLEXER_MIN;
-
+static uint32_t sleepCnt = 0u;
 void countRaindrop();
 
 volatile static uint32_t counts = 0u;
@@ -85,6 +87,8 @@ void do_send(osjob_t *j)
     // Check if there is not a current TX/RX job running
     if (!(LMIC.opmode & OP_TXRXPEND))
     {
+        state = ST_TX_RX_PENDING;
+        analogWrite(LEDPIN, 50u);
         // Copy counter value in interrupt safe context.
         uint32_t c;
         ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
@@ -93,7 +97,7 @@ void do_send(osjob_t *j)
         }
 
         // Send buffer.
-        uint8_t buff[3];
+        uint8_t buff[5];
 
         // Data encoded in 3 bytes.
         // First two bytes and bit 7 of the third byte is the counter.
@@ -112,6 +116,8 @@ void do_send(osjob_t *j)
         // Maximum voltage is not above 4.3 v so 7 bits is ok
         uint8_t vbat = (uint8_t)((uint16_t)(measuredvbat * 100u) - 330u) & 0x7Fu;
         buff[2] = top | vbat;
+        buff[3] = highByte(sleepCnt);
+        buff[4] = lowByte(sleepCnt);
         LMIC_setTxData2(1u, buff, sizeof(buff), 0u);
     }
 }
@@ -123,6 +129,7 @@ void onEvent(ev_t ev)
     switch (ev)
     {
     case EV_JOINING:
+        state = ST_JOINING;
         // Start with SF9.
         LMIC_setDrTxpow(EU868_DR_SF9, 14);
         Serial.println(F("EV_J"));
@@ -132,10 +139,8 @@ void onEvent(ev_t ev)
         break;
     case EV_JOINED:
         Serial.println(F("EV_JOINED"));
-        {
-            state = ST_JOIN_DONE;
-            digitalWrite(LEDPIN, LOW);
-        }
+        state = ST_JOIN_DONE;
+        digitalWrite(LEDPIN, LOW);
         break;
     case EV_JOIN_FAILED:
         Serial.println(F("EV_J_F"));
@@ -188,6 +193,17 @@ void onEvent(ev_t ev)
         }
         // Schedule next transmission
         os_setTimedCallback(&sendJob, os_getTime() + sec2osticks(TX_INTERVAL * TX_INTERVAL_MULTIPLEXER), do_send);
+        if (!(LMIC.opmode & OP_POLL))
+        {
+            analogWrite(LEDPIN, 2u);
+            state = ST_IDLE;
+        }
+        else
+        {
+            analogWrite(LEDPIN, 10u);
+            Serial.println(F("OP_POLL"));
+            // Confirmed downlink requested.
+        }
 
         break;
     case EV_RESET:
@@ -199,6 +215,8 @@ void onEvent(ev_t ev)
         break;
     case EV_TXSTART:
         Serial.println(F("EV_TXS"));
+        state = ST_TX_RX_PENDING;
+        analogWrite(LEDPIN, 50u);
         break;
     default:
         Serial.print(F("Unknown event: "));
@@ -214,7 +232,7 @@ void setup()
     pinMode(RAIN_GAUGE_PIN, INPUT_PULLUP);
 
     // Turn on the LED to indicate startup mode.
-    analogWrite(LEDPIN, 2);
+    analogWrite(LEDPIN, 2u);
     Serial.begin(115200);
     delay(100);
     if (UDADDR & _BV(ADDEN))
@@ -320,22 +338,34 @@ void countRaindrop()
     last_interrupt_time = interrupt_time;
 }
 
+static const uint8_t maxLoopsBeforeSleep = 5u;
+static uint8_t loopsBeforeSleep = 0u;
+
 void loop()
 {
     os_runloop_once();
 
-    if (ST_JOINING == state)
+    switch (state)
+    {
+    case ST_JOINING:
     {
         unsigned long currentMillis = millis();
         doTheFade(currentMillis);
     }
-    else
+    break;
+    case ST_JOIN_DONE:
+    {
+        state = ST_TX_RX_PENDING;
+    }
+    break;
+    case ST_IDLE:
     {
         if (!(UDADDR & _BV(ADDEN)))
         {
-            // Check if it is OK to go to sleep for 15 ms.
-            if (0 == os_queryTimeCriticalJobs(os_getTime() + ms2osticks(15u)))
+            loopsBeforeSleep++;
+            if (loopsBeforeSleep > maxLoopsBeforeSleep)
             {
+                loopsBeforeSleep = 0u;
                 if (measuredvbat < 3.5f)
                 {
                     // To low battery voltage. Powerdown to not discharge battery
@@ -345,47 +375,54 @@ void loop()
                     LowPower.powerDown(SLEEP_FOREVER, ADC_OFF, BOD_OFF);
                 }
 
+                digitalWrite(LEDPIN, LOW);
                 // OK to go to sleep.
-                wakeup_by_interrupt = false;
-                LowPower.powerDown(SLEEP_15MS, ADC_OFF, BOD_OFF);
+                LowPower.powerDown(SLEEP_8S, ADC_OFF, BOD_OFF);
                 if (!wakeup_by_interrupt)
                 {
-                    // Wakeup by timeout. This is ignored when waked up by interrupt.
-                    // Give the AVR back the sleep time
-                    //Needs '#include <util/atomic.h>'
-                    const unsigned long slept = 15u; // 15 ms sleep time.
-                    ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
-                    {
-                        extern volatile unsigned long timer0_millis;
-                        extern volatile unsigned long timer0_overflow_count;
-                        timer0_millis += slept;
-                        // timer0 uses a /64 prescaler and overflows every 256 timer ticks
-                        timer0_overflow_count += microsecondsToClockCycles((uint32_t)slept * 1000u) / (64 * 256);
-                    }
+                    // Wakeup by timeout.
+                    sleepCnt++;
                 }
+                // Give the AVR back the sleep time
+                //Needs '#include <util/atomic.h>'
+                const unsigned long slept = 8u * 1000u; // 8 s sleep time.
+
+                ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
+                {
+                    extern volatile unsigned long timer0_millis;
+                    extern volatile unsigned long timer0_overflow_count;
+                    timer0_millis += slept;
+                    // timer0 uses a /64 prescaler and overflows every 256 timer ticks
+                    timer0_overflow_count += microsecondsToClockCycles((uint32_t)slept * 1000u) / (64 * 256);
+                }
+                wakeup_by_interrupt = false;
                 // VERY IMPORTANT after sleep to update os_time and not cause txbeg and os_time
                 // out of sync which causes send delays with the RFM95 on and eating power
                 os_getTime();
             }
         }
-        else
+    }
+    default:
+    break;
+    }
+
+    if (UDADDR & _BV(ADDEN))
+    {
+        // Only run this part if USB is connected.
+        unsigned long currentMillis = millis();
+        if ((currentMillis - previousFadeMillis) >= 10000u)
         {
-            // Only run this part if USB is connected.
-            unsigned long currentMillis = millis();
-            if ((currentMillis - previousFadeMillis) >= 10000u)
+            // Copy counter value in interrupt safe context.
+            uint32_t c;
+            ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
             {
-                // Copy counter value in interrupt safe context.
-                uint32_t c;
-                ATOMIC_BLOCK(ATOMIC_RESTORESTATE)
-                {
-                    c = counts;
-                }
-                Serial.print(F("counts: "));
-                Serial.print(c);
-                Serial.print(F(" VBat: "));
-                Serial.println(measuredvbat);
-                previousFadeMillis = currentMillis;
+                c = counts;
             }
+            Serial.print(F("counts: "));
+            Serial.print(c);
+            Serial.print(F(" VBat: "));
+            Serial.println(measuredvbat);
+            previousFadeMillis = currentMillis;
         }
     }
     measureVbat();
