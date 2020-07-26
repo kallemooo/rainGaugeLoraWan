@@ -20,6 +20,8 @@ In the tipping bucket rain gauge, the bucket tips/tumbles 5 times for 10 ml (or 
 * RJ-11 jack for the tipping bucket connection.
 * Wires to connect the RJ-11 to the Feather.
 
+![Hardware](/img/hardware.png "The hardware used.")
+
 ### Pin usage.
 #### RFM95 connection
 All needed pins of the the RFM95 pins is on the Feather directly connected to pins on the 32u4 except for RFM95 DIO1. For RFM95 DIO1 is Arduino pin 1 selected as it is external interrupt #3, and also located next to dio1 on the Feather.
@@ -36,6 +38,24 @@ Weak pull-up needs to be enabled for Arduino pin 3 so when the tipping bucket ti
 The [Arduino-LMIC library][arduino-lmic] provides the LoRaWAN&trade; support.
 
 The firmware only counts number of tips/tumbles done by the tipping bucket and sends it using LoRaWAN&trade;. In the message is also the battery voltage level reported.
+
+During LoRaWan join sequence the LED is fading. The fade class is build from the [Arduino fading led example][fade].
+
+### Power save handling
+Power saving is done in two main states. Raining mode and no rain mode.
+
+A third mode sets the device in SLEEP_FOREVER mode without any interrupts enabled if the battery voltage is below 3.5 v.
+This is to save the battery from being destroyed by discharging.
+
+#### Raining mode
+Sleep is done in 8 second intervals and after each 8 s of sleep the LMIC state machine is checked and data if it is time data is sent.
+
+Default data send period is 15 seconds.
+
+#### No rain mode
+If there have been no rain detected for approximate one hour the device sets sleep mode SLEEP_FOREVER and waits for the next time it rains so an external interrupt wakes up the device.
+
+When the device wakes up a message is sent to fetch any incoming command.
 
 ## Integration to [the things network][ttn]
 To simplify integration to [the things network][ttn] a decoder and encoder can be used to simplify usage of the MQTT API.
@@ -66,7 +86,7 @@ function Decoder(bytes, port)
 
   if (port === 1)
   {
-    if (bytes.length == 3)
+    if (bytes.length >= 3)
     {
       decoded.counts = (((bytes[2] & 0x80) >> 7) << 16) | (bytes[1]<<8) | bytes[0];
       decoded.vbat = ((bytes[2] & 0x7F) + 330) / 100.0;
@@ -85,11 +105,12 @@ function Encoder(object, port) {
   // object to an array or buffer of bytes.
   var bytes = [];
 
-  if (port === 1 && ((object.multiplexer > 1) && (object.multiplexer < 250)))
+  if (port === 1 && ((object.multiplexer > 0) && (object.multiplexer < 255)))
   {
-    bytes[0] = object.multiplexer;
+    bytes[0] = 1;
+    bytes[1] = object.multiplexer;
   }
-  if (port === 2 && object.reset === 0xea)
+  else if (port === 2 && object.reset === 0xea)
   {
     bytes[0] = object.reset;
   }
@@ -106,6 +127,7 @@ function Encoder(object, port) {
 * [Adafruit Feather 32u4 PlatformIO board][feather32u4]
 * [PlatformIO][PlatformIO]
 * [Arduino-LMIC library][arduino-lmic]
+* [Arduino fading led example][fade]
 
 [//]: # (These are reference links used in the body of this note and get stripped out when the markdown processor does its job.)
 
@@ -122,3 +144,5 @@ function Encoder(object, port) {
 [PlatformIO]: <https://platformio.org> "PlatformIO"
 
 [arduino-lmic]: <https://github.com/mcci-catena/arduino-lmic> "MCCI Catena Arduino-LMIC library"
+
+[fade]: <https://www.baldengineer.com/fading-led-analogwrite-millis-example.html> "Arduino fading led example"
